@@ -22,9 +22,9 @@ def fetch_table(table):
     r = requests.get(url, headers=headers)
 
     # Debug info
-    st.write(f"🔍 Request URL ({table}):", url)
-    st.write(f"📡 Status Code:", r.status_code)
-    st.write(f"📦 Raw Response:", r.text)
+    # st.write(f"🔍 Request URL ({table}):", url)
+    # st.write(f"📡 Status Code:", r.status_code)
+    # st.write(f"📦 Raw Response:", r.text)
 
     if r.status_code == 200:
         try:
