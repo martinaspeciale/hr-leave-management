@@ -3,17 +3,19 @@ import requests
 import pandas as pd
 import io
 
-DELOITTE_GREEN = "#86BC25"   # primary accent
-DELOITTE_DARK = "#1C1C1C"    # near-black
-DELOITTE_GRAY = "#737373"
-DELOITTE_LIGHT_GRAY = "#E0E0E0"
-
 DELOITTE_PIE_COLORS = [
-    DELOITTE_GREEN,
-    "#00A3A1",  # teal accent
-    "#0076A8",  # blue accent
-    "#5B5B5B",  # dark gray
-    "#B0B0B0",  # light gray
+    "#E8F5E9",  # very light green
+    "#A5D6A7",  # light green
+    "#66BB6A",  # medium green
+    "#43A047",  # dark green
+    "#1B5E20",  # very dark green
+]
+
+STATUS_PALETTE = [
+    "#E6B8B9",  # soft antique rose
+    "#D46A6A",  # warm medium red
+    "#A63D40",  # dark wine red
+    "#7B241C",  # deep bordeaux
 ]
 
 
@@ -217,7 +219,7 @@ def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
                 y="count",
                 text="count",
                 color="status",
-                color_discrete_sequence=DELOITTE_PIE_COLORS,
+                color_discrete_sequence=STATUS_PALETTE,
                 title="Richieste per stato"
             )
 
@@ -676,3 +678,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
