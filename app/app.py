@@ -3,6 +3,20 @@ import requests
 import pandas as pd
 import io
 
+DELOITTE_GREEN = "#86BC25"   # primary accent
+DELOITTE_DARK = "#1C1C1C"    # near-black
+DELOITTE_GRAY = "#737373"
+DELOITTE_LIGHT_GRAY = "#E0E0E0"
+
+DELOITTE_PIE_COLORS = [
+    DELOITTE_GREEN,
+    "#00A3A1",  # teal accent
+    "#0076A8",  # blue accent
+    "#5B5B5B",  # dark gray
+    "#B0B0B0",  # light gray
+]
+
+
 st.set_page_config(page_title="HR Leave Management", layout="wide")
 
 # ---------------------------------------
@@ -145,7 +159,7 @@ def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
                 names="business_unit",
                 values="count",
                 title="Distribuzione Dipendenti per Business Unit",
-                color_discrete_sequence=px.colors.qualitative.Pastel
+                color_discrete_sequence=DELOITTE_PIE_COLORS
             )
 
             fig.update_layout(
@@ -157,6 +171,7 @@ def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
 
             st.plotly_chart(fig, use_container_width=True)
 
+
             # 👇 RIEPILOGO SOTTO IL GRAFICO
 
             # Totale dipendenti (usa num_dip definito sopra in render_home)
@@ -164,7 +179,11 @@ def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
 
             # Ultimo aggiornamento (colonna last_updated)
             if "last_updated" in df_dip.columns:
-                last_upd = pd.to_datetime(df_dip["last_updated"], errors="coerce").max()
+                # Interpreta i timestamp come UTC e convertili in Europe/Rome
+                serie = pd.to_datetime(df_dip["last_updated"], errors="coerce", utc=True)
+                serie_rome = serie.dt.tz_convert("Europe/Rome")
+                last_upd = serie_rome.max()
+
                 if pd.notna(last_upd):
                     st.markdown(
                         f"**Ultimo aggiornamento dati:** {last_upd.strftime('%d/%m/%Y %H:%M')}"
@@ -178,8 +197,10 @@ def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
             st.info("Nessun dato sui dipendenti o colonna business_unit mancante.")
 
 
+    # --- Richieste ferie per stato (Bar Chart) ---
     with col_right:
         st.subheader("Richieste ferie per stato")
+
         if not df_req.empty and "status" in df_req.columns:
             status_counts = (
                 df_req["status"]
@@ -187,9 +208,43 @@ def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
                 .rename_axis("status")
                 .reset_index(name="count")
             )
-            st.bar_chart(status_counts.set_index("status"))
+
+            import plotly.express as px
+
+            fig2 = px.bar(
+                status_counts,
+                x="status",
+                y="count",
+                text="count",
+                color="status",
+                color_discrete_sequence=DELOITTE_PIE_COLORS,
+                title="Richieste per stato"
+            )
+
+            # --- Clean, integer-only Y axis ---
+            fig2.update_layout(
+                showlegend=False,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="white",
+
+                yaxis=dict(
+                    dtick=1,            # only integer steps
+                    tick0=0,            # start at zero
+                    rangemode="tozero", # no negative values
+                    tickformat="d",     # remove decimals
+                ),
+            )
+
+            fig2.update_traces(
+                textposition="outside",
+                cliponaxis=False
+            )
+
+            st.plotly_chart(fig2, use_container_width=True)
         else:
             st.info("Nessun dato sulle richieste o colonna status mancante.")
+
 
     st.markdown("---")
     st.caption("Usa il menu a sinistra per gestire dipendenti e richieste ferie.")
@@ -215,31 +270,32 @@ def render_dipendenti(df_dip: pd.DataFrame, action: str):
 
         st.subheader("Scarica tabella dipendenti")
 
-        col_xlsx, col_csv, col_json = st.columns(3)
+        fmt = st.radio(
+            "Formato file",
+            ["Excel (.xlsx)", "CSV (.csv)", "JSON (.json)"],
+            horizontal=True,
+        )
 
-        with col_xlsx:
-            st.download_button(
-                "📥 Excel",
-                data=df_to_excel_bytes(df_dip),
-                file_name="dipendenti.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+        if fmt == "Excel (.xlsx)":
+            data = df_to_excel_bytes(df_dip)
+            file_name = "dipendenti.xlsx"
+            mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        elif fmt == "CSV (.csv)":
+            data = df_to_csv_bytes(df_dip)
+            file_name = "dipendenti.csv"
+            mime = "text/csv"
+        else:  # JSON
+            data = df_to_json_bytes(df_dip)
+            file_name = "dipendenti.json"
+            mime = "application/json"
 
-        with col_csv:
-            st.download_button(
-                "📥 CSV",
-                data=df_to_csv_bytes(df_dip),
-                file_name="dipendenti.csv",
-                mime="text/csv",
-            )
+        st.download_button(
+            "📥 Scarica",
+            data=data,
+            file_name=file_name,
+            mime=mime,
+        )
 
-        with col_json:
-            st.download_button(
-                "📥 JSON",
-                data=df_to_json_bytes(df_dip),
-                file_name="dipendenti.json",
-                mime="application/json",
-            )
 
     elif action == "Aggiungi singolo":
         st.subheader("Aggiungi un nuovo dipendente")
@@ -272,36 +328,70 @@ def render_dipendenti(df_dip: pd.DataFrame, action: str):
                 else:
                     st.error(f"❌ Errore inserimento: {r.text}")
 
-    elif action == "Import da Excel":
-        st.subheader("Importa dipendenti da file Excel")
+    elif action == "Import":
+        st.subheader("Importa dipendenti da file")
 
-        uploaded_file = st.file_uploader("Carica file Excel (.xlsx)", type=["xlsx"])
+        uploaded_file = st.file_uploader(
+            "Carica file (.xlsx o .csv)",
+            type=["xlsx", "csv"],
+        )
 
         if uploaded_file:
-            df_upload = pd.read_excel(uploaded_file)
+            filename = uploaded_file.name.lower()
+
+            # Lettura CSV/Excel
+            if filename.endswith(".csv"):
+                df_upload = pd.read_csv(uploaded_file)
+            else:
+                df_upload = pd.read_excel(uploaded_file)
+
+            # 🔥 SANIFICAZIONE COMPLETA 🔥
+            df_upload = df_upload.replace({pd.NA: None, "None": None, "nan": None})
+            df_upload = df_upload.where(pd.notnull(df_upload), None)
+
+            # Rimuovere colonne che non vanno mostrate 
+            df_preview = df_upload.drop(columns=["last_updated"], errors="ignore")
+
             st.write("📄 Anteprima file:")
-            st.dataframe(df_upload)
+            st.dataframe(df_preview)
+
 
             if st.button("Importa nel database"):
                 successes = 0
                 failures = []
 
                 for _, row in df_upload.iterrows():
-                    payload = row.to_dict()
+
+                    # Conversione row → dict con pulizia JSON-safe
+                    payload = {}
+                    for k, v in row.to_dict().items():
+                        if pd.isna(v) or v in ["None", "nan", "NaN", ""]:
+                            payload[k] = None
+                        else:
+                            payload[k] = v
+                    
+                    payload.pop("last_updated", None)
+
+
+                    # POST verso Supabase
                     r = requests.post(
                         f"{SUPABASE_URL}/rest/v1/dipendenti",
-                        headers=headers,
-                        json=payload
+                        headers=get_auth_headers(),
+                        json=payload,
                     )
+
                     if r.status_code < 300:
                         successes += 1
                     else:
-                        failures.append({"row": row.to_dict(), "error": r.text})
+                        failures.append({"row": payload, "error": r.text})
 
+                # Output
                 st.success(f"Import completato! {successes} righe inserite.")
+
                 if failures:
                     st.error("Alcune righe non sono state inserite:")
                     st.json(failures)
+
 
     elif action == "Modifica / Elimina":
         st.subheader("Modifica o elimina dipendente")
@@ -381,31 +471,32 @@ def render_richieste(df_req: pd.DataFrame, action: str):
 
         st.subheader("Scarica tabella richieste ferie")
 
-        col_xlsx, col_csv, col_json = st.columns(3)
+        fmt = st.radio(
+            "Formato file",
+            ["Excel (.xlsx)", "CSV (.csv)", "JSON (.json)"],
+            horizontal=True,
+        )
 
-        with col_xlsx:
-            st.download_button(
-                "📥 Excel",
-                data=df_to_excel_bytes(df_req),
-                file_name="richieste_ferie.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+        if fmt == "Excel (.xlsx)":
+            data = df_to_excel_bytes(df_req)
+            file_name = "richieste_ferie.xlsx"
+            mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        elif fmt == "CSV (.csv)":
+            data = df_to_csv_bytes(df_req)
+            file_name = "richieste_ferie.csv"
+            mime = "text/csv"
+        else:
+            data = df_to_json_bytes(df_req)
+            file_name = "richieste_ferie.json"
+            mime = "application/json"
 
-        with col_csv:
-            st.download_button(
-                "📥 CSV",
-                data=df_to_csv_bytes(df_req),
-                file_name="richieste_ferie.csv",
-                mime="text/csv",
-            )
+        st.download_button(
+            "📥 Scarica",
+            data=data,
+            file_name=file_name,
+            mime=mime,
+        )
 
-        with col_json:
-            st.download_button(
-                "📥 JSON",
-                data=df_to_json_bytes(df_req),
-                file_name="richieste_ferie.json",
-                mime="application/json",
-            )
 
     elif action == "Nuova richiesta":
         st.subheader("Registra una nuova richiesta ferie")
@@ -540,7 +631,7 @@ def main_app():
         st.sidebar.markdown("### Azioni dipendenti")
         dip_action = st.sidebar.radio(
             "Seleziona azione",
-            ["Vista & download", "Aggiungi singolo", "Import da Excel", "Modifica / Elimina"],
+            ["Vista & download", "Aggiungi singolo", "Import", "Modifica / Elimina"],
             index=0,
         )
 
