@@ -25,7 +25,7 @@ def fetch_table(table):
     if r.status_code == 200:
         try:
             return pd.DataFrame(r.json())
-        except:
+        except Exception:
             st.error("❌ Error parsing JSON response")
             return pd.DataFrame()
     else:
@@ -34,13 +34,21 @@ def fetch_table(table):
 
 
 # -------------------------------------------------------
-# Utility: convert DF → Excel bytes
+# Utility: DF → Excel / CSV / JSON bytes
 # -------------------------------------------------------
-def df_to_excel_bytes(df):
+def df_to_excel_bytes(df: pd.DataFrame) -> bytes:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False)
     return output.getvalue()
+
+def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
+    return df.to_csv(index=False).encode("utf-8")
+
+def df_to_json_bytes(df: pd.DataFrame) -> bytes:
+    # records array of objects [{...}, {...}]
+    s = df.to_json(orient="records", force_ascii=False, date_format="iso")
+    return s.encode("utf-8")
 
 
 # -------------------------------------------------------
@@ -55,7 +63,6 @@ tab1, tab2 = st.tabs(["Dipendenti", "Richieste Ferie"])
 # TAB 1 — DIPENDENTI
 # -------------------------------------------------------
 with tab1:
-
     st.header("Dipendenti")
 
     df = fetch_table("dipendenti")
@@ -132,18 +139,34 @@ with tab1:
                 st.json(failures)
 
     # ------------------------
-    # Download Tables (Excel)
+    # Download Dipendenti
     # ------------------------
-    st.subheader("Scarica Tabelle")
+    st.subheader("Scarica tabella dipendenti")
 
-    col1, col2 = st.columns(2)
+    col_xlsx, col_csv, col_json = st.columns(3)
 
-    with col1:
+    with col_xlsx:
         st.download_button(
-            "📥 Scarica dipendenti (Excel)",
+            "📥 Excel",
             data=df_to_excel_bytes(df),
             file_name="dipendenti.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    with col_csv:
+        st.download_button(
+            "📥 CSV",
+            data=df_to_csv_bytes(df),
+            file_name="dipendenti.csv",
+            mime="text/csv",
+        )
+
+    with col_json:
+        st.download_button(
+            "📥 JSON",
+            data=df_to_json_bytes(df),
+            file_name="dipendenti.json",
+            mime="application/json",
         )
 
 
@@ -151,7 +174,6 @@ with tab1:
 # TAB 2 — RICHIESTE FERIE
 # -------------------------------------------------------
 with tab2:
-
     st.header("Richieste Ferie")
 
     df2 = fetch_table("richieste_ferie")
@@ -192,13 +214,32 @@ with tab2:
                 st.error(f"❌ Insert error: {r.text}")
 
     # ------------------------
-    # Download richieste ferie
+    # Download Richieste Ferie
     # ------------------------
-    st.subheader("Download Tabelle")
+    st.subheader("Scarica tabella richieste ferie")
 
-    st.download_button(
-        "📥 Scarica richieste ferie (Excel)",
-        data=df_to_excel_bytes(df2),
-        file_name="richieste_ferie.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    col2_xlsx, col2_csv, col2_json = st.columns(3)
+
+    with col2_xlsx:
+        st.download_button(
+            "📥 Excel",
+            data=df_to_excel_bytes(df2),
+            file_name="richieste_ferie.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    with col2_csv:
+        st.download_button(
+            "📥 CSV",
+            data=df_to_csv_bytes(df2),
+            file_name="richieste_ferie.csv",
+            mime="text/csv",
+        )
+
+    with col2_json:
+        st.download_button(
+            "📥 JSON",
+            data=df_to_json_bytes(df2),
+            file_name="richieste_ferie.json",
+            mime="application/json",
+        )
