@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 import io
 
-DELOITTE_PIE_COLORS = [
+GREEN_PALETTE = [
     "#E8F5E9",  # very light green
     "#A5D6A7",  # light green
     "#66BB6A",  # medium green
@@ -113,33 +113,159 @@ def df_to_json_bytes(df: pd.DataFrame) -> bytes:
 # Page: Home (Dashboard)
 # ---------------------------------------
 def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
-    st.title("HR Leave Management – Dashboard")
+    st.title("HR Leave Management Dashboard")
 
-    col1, col2, col3 = st.columns(3)
+    # ------------------------------------------------------------------
+    # FILTRI GLOBALI
+    # ------------------------------------------------------------------
+    with st.expander("Filtri avanzati", expanded=False):
 
-    num_dip = len(df_dip) if not df_dip.empty else 0
-    num_req = len(df_req) if not df_req.empty else 0
-    if not df_req.empty and "status" in df_req.columns:
-        num_pending = (df_req["status"] == "PENDING").sum()
-    else:
-        num_pending = 0
+        st.write("Puoi filtrare i dati del dashboard per Business Unit, livello, stato e periodo ferie.")
 
-    col1.metric("Dipendenti totali", num_dip)
-    col2.metric("Richieste ferie totali", num_req)
-    col3.metric("Richieste in sospeso", num_pending)
+        f_col1, f_col2, f_col3 = st.columns(3)
+
+        # Business Unit
+        if df_dip is not None and not df_dip.empty and "business_unit" in df_dip.columns:
+            bu_options = sorted(df_dip["business_unit"].dropna().unique())
+        else:
+            bu_options = []
+
+        with f_col1:
+            selected_bu = st.multiselect(
+                "Business Unit",
+                options=bu_options,
+                default=bu_options,
+            )
+
+        # Level
+        if df_dip is not None and not df_dip.empty and "level" in df_dip.columns:
+            level_options = sorted(df_dip["level"].dropna().unique())
+        else:
+            level_options = []
+
+        with f_col2:
+            selected_levels = st.multiselect(
+                "Level",
+                options=level_options,
+                default=level_options,
+            )
+
+        # Stato richiesta
+        if df_req is not None and not df_req.empty and "status" in df_req.columns:
+            status_options = sorted(df_req["status"].dropna().unique())
+        else:
+            status_options = []
+
+        with f_col3:
+            selected_status = st.multiselect(
+                "Stato richiesta",
+                options=status_options,
+                default=status_options,
+            )
+
+        # Filtro periodo (data_inizio + data_fine)
+        date_range = None
+        if df_req is not None and not df_req.empty and "data_inizio" in df_req.columns:
+
+            # Parse date_inizio / date_fine
+            start_series = pd.to_datetime(df_req["data_inizio"], errors="coerce")
+            if "data_fine" in df_req.columns:
+                end_series = pd.to_datetime(
+                    df_req["data_fine"].fillna(df_req["data_inizio"]),
+                    errors="coerce",
+                )
+            else:
+                end_series = start_series
+
+            # Limiti min/max per default del date_input
+            min_date = start_series.min().date()
+            max_date = end_series.max().date()
+
+            if pd.notna(min_date) and pd.notna(max_date):
+                st.caption("Filtro periodo ferie (intervallo che si sovrappone al range selezionato)")
+                date_range = st.date_input(
+                    "Periodo",
+                    value=(min_date, max_date),
+                )
+
+
+    # ------------------------------------------------------------------
+    # APPLICAZIONE FILTRI
+    # ------------------------------------------------------------------
+    df_dip_filt = df_dip.copy() if df_dip is not None else pd.DataFrame()
+    df_req_filt = df_req.copy() if df_req is not None else pd.DataFrame()
+
+    # Filtri su dipendenti
+    if not df_dip_filt.empty:
+        if selected_bu:
+            df_dip_filt = df_dip_filt[df_dip_filt["business_unit"].isin(selected_bu)]
+        if selected_levels:
+            df_dip_filt = df_dip_filt[df_dip_filt["level"].isin(selected_levels)]
+
+    # Filtri su richieste
+    if not df_req_filt.empty and "dipendente_email" in df_req_filt.columns:
+        # Filtra per stato
+        if selected_status:
+            df_req_filt = df_req_filt[df_req_filt["status"].isin(selected_status)]
+
+        # Collega alle persone filtrate
+        if not df_dip_filt.empty and "email" in df_dip_filt.columns:
+            df_req_filt = df_req_filt[
+                df_req_filt["dipendente_email"].isin(df_dip_filt["email"])
+            ]
+
+        # Filtro periodo su [data_inizio, data_fine]
+        if date_range and len(date_range) == 2 and "data_inizio" in df_req_filt.columns:
+            start_date_sel, end_date_sel = date_range
+
+            start_series = pd.to_datetime(df_req_filt["data_inizio"], errors="coerce")
+
+            if "data_fine" in df_req_filt.columns:
+                end_series = pd.to_datetime(
+                    df_req_filt["data_fine"].fillna(df_req_filt["data_inizio"]),
+                    errors="coerce",
+                )
+            else:
+                end_series = start_series
+
+            # Manteniamo le richieste il cui intervallo [inizio, fine]
+            # SI SOVRAPPONE al range [start_date_sel, end_date_sel]
+            mask = (
+                (end_series.dt.date >= start_date_sel)
+                & (start_series.dt.date <= end_date_sel)
+            )
+            df_req_filt = df_req_filt[mask]
+
+    st.markdown("---")
+
+    # ------------------------------------------------------------------
+    # KPIs (basati sui dati filtrati)
+    # ------------------------------------------------------------------
+    num_dip = len(df_dip_filt) if df_dip_filt is not None else 0
+    num_req = len(df_req_filt) if df_req_filt is not None else 0
+    num_pending = 0
+    if df_req_filt is not None and not df_req_filt.empty and "status" in df_req_filt.columns:
+        num_pending = (df_req_filt["status"] == "PENDING").sum()
+
+    kpi1, kpi2, kpi3 = st.columns(3)
+    kpi1.metric("Dipendenti", num_dip)
+    kpi2.metric("Richieste ferie", num_req)
+    kpi3.metric("Richieste PENDING", int(num_pending))
 
     st.markdown("---")
 
     col_left, col_right = st.columns(2)
 
+    # ------------------------------------------------------------------
+    # SINISTRA: Dipendenti per BU (PIE VERDE)
+    # ------------------------------------------------------------------
     with col_left:
         st.subheader("Dipendenti per Business Unit")
 
-        if not df_dip.empty and "business_unit" in df_dip.columns:
-
-            # Normalizzazione Business Unit
-            df_dip["business_unit"] = (
-                df_dip["business_unit"]
+        if df_dip_filt is not None and not df_dip_filt.empty and "business_unit" in df_dip_filt.columns:
+            df_bu = df_dip_filt.copy()
+            df_bu["business_unit"] = (
+                df_bu["business_unit"]
                 .astype(str)
                 .str.strip()
                 .str.lower()
@@ -148,7 +274,7 @@ def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
             )
 
             bu_counts = (
-                df_dip["business_unit"]
+                df_bu["business_unit"]
                 .value_counts()
                 .rename_axis("business_unit")
                 .reset_index(name="count")
@@ -161,27 +287,23 @@ def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
                 names="business_unit",
                 values="count",
                 title="Distribuzione Dipendenti per Business Unit",
-                color_discrete_sequence=DELOITTE_PIE_COLORS
+                color_discrete_sequence=GREEN_PALETTE,
             )
 
             fig.update_layout(
                 showlegend=True,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
-                font_color="white"
+                font_color="white",
             )
 
             st.plotly_chart(fig, use_container_width=True)
 
+            # Totale dipendenti filtrati
+            st.markdown(f"**Totale dipendenti:** {num_dip}")
 
-            # 👇 RIEPILOGO SOTTO IL GRAFICO
-
-            # Totale dipendenti (usa num_dip definito sopra in render_home)
-            st.markdown(f"**Totale dipendenti nel DB:** {num_dip}")
-
-            # Ultimo aggiornamento (colonna last_updated)
-            if "last_updated" in df_dip.columns:
-                # Interpreta i timestamp come UTC e convertili in Europe/Rome
+            # Ultimo aggiornamento dati (basato su df_dip "pieno")
+            if df_dip is not None and not df_dip.empty and "last_updated" in df_dip.columns:
                 serie = pd.to_datetime(df_dip["last_updated"], errors="coerce", utc=True)
                 serie_rome = serie.dt.tz_convert("Europe/Rome")
                 last_upd = serie_rome.max()
@@ -194,18 +316,18 @@ def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
                     st.caption("Ultimo aggiornamento: non disponibile.")
             else:
                 st.caption("Colonna `last_updated` non presente nella tabella.")
-
         else:
             st.info("Nessun dato sui dipendenti o colonna business_unit mancante.")
 
-
-    # --- Richieste ferie per stato (Bar Chart) ---
+    # ------------------------------------------------------------------
+    # DESTRA: Richieste per stato (BAR BORDEAUX)
+    # ------------------------------------------------------------------
     with col_right:
         st.subheader("Richieste ferie per stato")
 
-        if not df_req.empty and "status" in df_req.columns:
+        if df_req_filt is not None and not df_req_filt.empty and "status" in df_req_filt.columns:
             status_counts = (
-                df_req["status"]
+                df_req_filt["status"]
                 .value_counts()
                 .rename_axis("status")
                 .reset_index(name="count")
@@ -217,39 +339,114 @@ def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
                 status_counts,
                 x="status",
                 y="count",
+                title="Richieste per stato",
                 text="count",
                 color="status",
                 color_discrete_sequence=STATUS_PALETTE,
-                title="Richieste per stato"
             )
 
-            # --- Clean, integer-only Y axis ---
             fig2.update_layout(
                 showlegend=False,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
                 font_color="white",
-
                 yaxis=dict(
-                    dtick=1,            # only integer steps
-                    tick0=0,            # start at zero
-                    rangemode="tozero", # no negative values
-                    tickformat="d",     # remove decimals
+                    dtick=1,
+                    tick0=0,
+                    rangemode="tozero",
+                    tickformat="d",
                 ),
             )
 
             fig2.update_traces(
                 textposition="outside",
-                cliponaxis=False
+                cliponaxis=False,
             )
 
             st.plotly_chart(fig2, use_container_width=True)
         else:
             st.info("Nessun dato sulle richieste o colonna status mancante.")
 
-
     st.markdown("---")
-    st.caption("Usa il menu a sinistra per gestire dipendenti e richieste ferie.")
+
+    # ------------------------------------------------------------------
+    # GRAFICO EXTRA: Giorni di ferie per mese
+    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # GRAFICO: Andamento giornaliero delle ferie (line chart)
+    # ------------------------------------------------------------------
+    st.subheader("Andamento giornaliero delle ferie")
+
+    if df_req_filt is not None and not df_req_filt.empty and "data_inizio" in df_req_filt.columns:
+        df_daily = df_req_filt.copy()
+
+        # Parse date_inizio / date_fine
+        df_daily["data_inizio"] = pd.to_datetime(df_daily["data_inizio"], errors="coerce")
+
+        if "data_fine" in df_daily.columns:
+            df_daily["data_fine"] = pd.to_datetime(
+                df_daily["data_fine"].fillna(df_daily["data_inizio"]),
+                errors="coerce",
+            )
+        else:
+            df_daily["data_fine"] = df_daily["data_inizio"]
+
+        # Rimuoviamo righe senza date valide
+        df_daily = df_daily.dropna(subset=["data_inizio", "data_fine"])
+
+        # Ci assicuriamo che inizio <= fine
+        df_daily.loc[df_daily["data_fine"] < df_daily["data_inizio"], ["data_inizio", "data_fine"]] = \
+            df_daily.loc[df_daily["data_fine"] < df_daily["data_inizio"], ["data_fine", "data_inizio"]].values
+
+        if not df_daily.empty:
+            # Generiamo un elenco di giorni per ogni richiesta (range inclusivo)
+            df_daily["giorni_range"] = df_daily.apply(
+                lambda r: pd.date_range(r["data_inizio"].date(), r["data_fine"].date(), freq="D"),
+                axis=1,
+            )
+            df_expanded = df_daily.explode("giorni_range")
+
+            # Contiamo quante richieste sono attive per ciascun giorno
+            ferie_per_giorno = (
+                df_expanded.groupby("giorni_range")
+                .size()
+                .reset_index(name="num_richieste")
+                .sort_values("giorni_range")
+            )
+
+            import plotly.express as px
+
+            fig3 = px.line(
+                ferie_per_giorno,
+                x="giorni_range",
+                y="num_richieste",
+                title="Numero di richieste di ferie attive per giorno",
+            )
+
+            fig3.update_traces(mode="lines+markers")
+
+            fig3.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="white",
+                xaxis=dict(
+                    title="Giorni",
+                    showgrid=False,
+                ),
+                yaxis=dict(
+                    title="Numero richieste ferie",
+                    dtick=1,
+                    tick0=0,
+                    rangemode="tozero",
+                    tickformat="d",
+                ),
+            )
+
+            st.plotly_chart(fig3, use_container_width=True)
+        else:
+            st.caption("Nessuna data valida per costruire l'andamento giornaliero.")
+    else:
+        st.caption("Nessun dato `data_inizio` disponibile per l'andamento giornaliero.")
 
 
 # ---------------------------------------
