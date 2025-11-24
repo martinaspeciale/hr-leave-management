@@ -250,7 +250,7 @@ def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
     kpi1, kpi2, kpi3 = st.columns(3)
     kpi1.metric("Dipendenti", num_dip)
     kpi2.metric("Richieste ferie", num_req)
-    kpi3.metric("Richieste PENDING", int(num_pending))
+    kpi3.metric("Richieste Pending", int(num_pending))
 
     st.markdown("---")
 
@@ -370,9 +370,6 @@ def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
     st.markdown("---")
 
     # ------------------------------------------------------------------
-    # GRAFICO EXTRA: Giorni di ferie per mese
-    # ------------------------------------------------------------------
-    # ------------------------------------------------------------------
     # GRAFICO: Andamento giornaliero delle ferie (line chart)
     # ------------------------------------------------------------------
     st.subheader("Andamento giornaliero delle ferie")
@@ -380,33 +377,31 @@ def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
     if df_req_filt is not None and not df_req_filt.empty and "data_inizio" in df_req_filt.columns:
         df_daily = df_req_filt.copy()
 
-        # Parse date_inizio / date_fine
         df_daily["data_inizio"] = pd.to_datetime(df_daily["data_inizio"], errors="coerce")
+        df_daily["data_fine"] = pd.to_datetime(
+            df_daily.get("data_fine", df_daily["data_inizio"]),
+            errors="coerce",
+        )
 
-        if "data_fine" in df_daily.columns:
-            df_daily["data_fine"] = pd.to_datetime(
-                df_daily["data_fine"].fillna(df_daily["data_inizio"]),
-                errors="coerce",
-            )
-        else:
-            df_daily["data_fine"] = df_daily["data_inizio"]
-
-        # Rimuoviamo righe senza date valide
         df_daily = df_daily.dropna(subset=["data_inizio", "data_fine"])
 
-        # Ci assicuriamo che inizio <= fine
-        df_daily.loc[df_daily["data_fine"] < df_daily["data_inizio"], ["data_inizio", "data_fine"]] = \
-            df_daily.loc[df_daily["data_fine"] < df_daily["data_inizio"], ["data_fine", "data_inizio"]].values
+        df_daily.loc[
+            df_daily["data_fine"] < df_daily["data_inizio"],
+            ["data_inizio", "data_fine"]
+        ] = df_daily.loc[
+            df_daily["data_fine"] < df_daily["data_inizio"],
+            ["data_fine", "data_inizio"]
+        ].values
 
         if not df_daily.empty:
-            # Generiamo un elenco di giorni per ogni richiesta (range inclusivo)
+
             df_daily["giorni_range"] = df_daily.apply(
                 lambda r: pd.date_range(r["data_inizio"].date(), r["data_fine"].date(), freq="D"),
                 axis=1,
             )
+
             df_expanded = df_daily.explode("giorni_range")
 
-            # Contiamo quante richieste sono attive per ciascun giorno
             ferie_per_giorno = (
                 df_expanded.groupby("giorni_range")
                 .size()
@@ -414,39 +409,105 @@ def render_home(df_dip: pd.DataFrame, df_req: pd.DataFrame):
                 .sort_values("giorni_range")
             )
 
-            import plotly.express as px
+            # Apply requested date filter
+            if "selected_date_range" in st.session_state:
+                dr = st.session_state["selected_date_range"]
+                if dr and len(dr) == 2:
+                    sel_start, sel_end = dr
+                    ferie_per_giorno = ferie_per_giorno[
+                        (ferie_per_giorno["giorni_range"].dt.date >= sel_start)
+                        & (ferie_per_giorno["giorni_range"].dt.date <= sel_end)
+                    ]
+            import datetime
 
-            fig3 = px.line(
-                ferie_per_giorno,
-                x="giorni_range",
-                y="num_richieste",
-                title="Numero di richieste di ferie attive per giorno",
-            )
+            if not ferie_per_giorno.empty:
 
-            fig3.update_traces(mode="lines+markers")
+                # Create base line chart (markers equally spaced)
+                import plotly.graph_objects as go
+                fig3 = go.Figure()
 
-            fig3.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                font_color="white",
-                xaxis=dict(
-                    title="Giorni",
-                    showgrid=False,
-                ),
-                yaxis=dict(
-                    title="Numero richieste ferie",
-                    dtick=1,
-                    tick0=0,
-                    rangemode="tozero",
-                    tickformat="d",
-                ),
-            )
+                fig3.add_trace(go.Scatter(
+                    x=ferie_per_giorno["giorni_range"],
+                    y=ferie_per_giorno["num_richieste"],
+                    mode="lines+markers",
+                    name="Richieste ferie",
+                    line=dict(color="#82cfff", width=3),
+                    marker=dict(size=8, color="#82cfff")
+                ))
 
-            st.plotly_chart(fig3, use_container_width=True)
+                # -----------------------------
+                # HOLIDAYS + WEEKENDS (green)
+                # -----------------------------
+                holidays_fixed = {
+                    datetime.date(2025, 12, 8),
+                    datetime.date(2025, 12, 25),
+                    datetime.date(2025, 12, 26),
+                    datetime.date(2026, 1, 1),
+                    datetime.date(2026, 1, 6),
+                }
+
+                weekend_days = [
+                    d.date() for d in ferie_per_giorno["giorni_range"]
+                    if d.weekday() >= 5
+                ]
+
+                all_holidays = sorted(set(holidays_fixed) | set(weekend_days))
+
+                # Centered green shading (±12h around day)
+                for hday in all_holidays:
+
+                    # if a date filter is active, respect it
+                    if "selected_date_range" in st.session_state:
+                        dr = st.session_state["selected_date_range"]
+                        if dr and len(dr) == 2:
+                            if not (dr[0] <= hday <= dr[1]):
+                                continue
+
+                    x0 = datetime.datetime(hday.year, hday.month, hday.day) - datetime.timedelta(hours=12)
+                    x1 = x0 + datetime.timedelta(days=1)
+
+                    fig3.add_vrect(
+                        x0=x0,
+                        x1=x1,
+                        fillcolor="rgba(0, 180, 0, 0.15)",
+                        layer="below",
+                        line_width=0,
+                    )
+
+                # Legend marker for green
+                fig3.add_trace(go.Scatter(
+                    x=[None], y=[None],
+                    mode="markers",
+                    marker=dict(size=10, color="rgba(0, 180, 0, 0.4)"),
+                    name="Festività e weekend"
+                ))
+                # Layout
+                fig3.update_layout(
+                    title="Numero di richieste di ferie attive per giorno",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    font_color="white",
+                    xaxis=dict(
+                        title="Giorni",
+                        tickangle=-45,
+                        showgrid=False,
+                    ),
+                    yaxis=dict(
+                        title="Numero richieste ferie",
+                        dtick=1,
+                        rangemode="tozero",
+                    ),
+                )
+
+                st.plotly_chart(fig3, use_container_width=True)
+
+            else:
+                st.caption("Nessun giorno rientra nel range selezionato.")
         else:
-            st.caption("Nessuna data valida per costruire l'andamento giornaliero.")
+            st.caption("Nessuna date valide per costruire l'andamento giornaliero.")
     else:
         st.caption("Nessun dato `data_inizio` disponibile per l'andamento giornaliero.")
+
 
 
 # ---------------------------------------
