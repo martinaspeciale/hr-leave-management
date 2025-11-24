@@ -1,0 +1,108 @@
+# ----------------------------------------
+# PYTHON
+# ----------------------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+
+# ----------------------------------------
+# VIRTUAL ENVIRONMENTS
+# ----------------------------------------
+venv/
+env/
+.venv/
+.virtualenv/
+
+# ----------------------------------------
+# STREAMLIT
+# ----------------------------------------
+.streamlit/secrets.toml
+.streamlit/static/
+.streamlit/cache/
+.streamlit/cache.db
+.streamlit/logs/
+
+# Prevent accidental inclusion of cloud configuration
+.streamlit/config.toml
+
+# ----------------------------------------
+# JUPYTER
+# ----------------------------------------
+.ipynb_checkpoints/
+*.ipynb
+
+# ----------------------------------------
+# OS FILES
+# ----------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ----------------------------------------
+# EDITOR FILES
+# ----------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ----------------------------------------
+# SUPABASE
+# ----------------------------------------
+supabase/.branches/
+supabase/.temp/
+supabase/.linked/
+supabase/functions/.temp/
+supabase/migrations/.temp/
+.supabase/
+
+# Local Supabase docker containers
+docker/
+docker-compose.yaml
+docker-compose.yml
+docker-compose.*.yml
+
+# ----------------------------------------
+# LOG FILES
+# ----------------------------------------
+*.log
+logs/
+*.out
+
+# ----------------------------------------
+# ENV / SECRET FILES
+# ----------------------------------------
+.env
+.env.local
+.env.*.local
+secrets.json
+
+# ----------------------------------------
+# DATA FILES
+# ----------------------------------------
+*.sqlite3
+*.db
+*.dat
+*.csv
+*.xlsx
+*.xls
+*.parquet
+
+# You may want to track some CSVs → remove above if needed
+
+# ----------------------------------------
+# CACHE / TEMP
+# ----------------------------------------
+.cache/
+tmp/
+temp/
+*.tmp
+*.bak
+
