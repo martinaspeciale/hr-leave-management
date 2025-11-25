@@ -9,6 +9,22 @@ Calculation utilities:
 from datetime import date
 import pandas as pd
 
+HOLIDAYS = {
+    date(2025, 12, 8),
+    date(2025, 12, 25),
+    date(2025, 12, 26),
+    date(2026, 1, 1),
+    date(2026, 1, 6),
+}
+
+def is_working_day(d: date) -> bool:
+    """Return True if the given date is NOT a weekend and NOT a holiday."""
+    if d.weekday() >= 5:  # Saturday/Sunday
+        return False
+    if d in HOLIDAYS:
+        return False
+    return True
+
 
 def calcola_giorni_2025_2026(data_inizio, data_fine):
     """

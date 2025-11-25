@@ -1,4 +1,4 @@
-# pages/richieste.py
+# views/richieste.py
 
 """
 Page: Gestione Richieste Ferie
@@ -36,13 +36,52 @@ def render_richieste(df_req: pd.DataFrame, action: str):
         _page_edit_delete(df_req)
 
 
-# -------------------------------------------------------------
-# VISTA + DOWNLOAD
-# -------------------------------------------------------------
 def _page_vista(df):
     st.subheader("Elenco richieste ferie")
-    st.dataframe(df)
 
+    if df is None or df.empty:
+        st.info("Nessuna richiesta presente.")
+        return
+
+    df_view = df.copy()
+
+    # Nascondere colonne non rilevanti
+    df_view = df_view.drop(
+        columns=["motivo", "note", "data_richiesta"],
+        errors="ignore"
+    )
+
+    # ---------------------------------------------------
+    # 🔥 FORZARE ORDINE COLONNE
+    # ---------------------------------------------------
+    desired_order = [
+        "id",
+        "dipendente_email",
+        "data_inizio",
+        "data_fine",
+        "giorni_lavorativi_2025",
+        "giorni_lavorativi_2026",
+        "status",
+        "approvato_da",
+        "created_date",
+    ]
+
+    # Tieni solo quelle effettivamente presenti
+    ordered_cols = [c for c in desired_order if c in df_view.columns]
+    other_cols = [c for c in df_view.columns if c not in ordered_cols]
+
+    df_view = df_view[ordered_cols + other_cols]
+
+    # ---------------------------------------------------
+    # Rimozione underscore
+    # ---------------------------------------------------
+    df_view.columns = [col.replace("_", " ").title() for col in df_view.columns]
+
+    st.dataframe(df_view, use_container_width=True)
+
+    # ---------------------------------------------------
+    # Download
+    # ---------------------------------------------------
     st.subheader("Scarica tabella richieste ferie")
 
     fmt = st.radio(
@@ -52,17 +91,15 @@ def _page_vista(df):
     )
 
     if fmt == "Excel (.xlsx)":
-        data = df_to_excel_bytes(df)
+        data = df_to_excel_bytes(df_view)
         fname = "richieste_ferie.xlsx"
         mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
     elif fmt == "CSV (.csv)":
-        data = df_to_csv_bytes(df)
+        data = df_to_csv_bytes(df_view)
         fname = "richieste_ferie.csv"
         mime = "text/csv"
-
     else:
-        data = df_to_json_bytes(df)
+        data = df_to_json_bytes(df_view)
         fname = "richieste_ferie.json"
         mime = "application/json"
 
@@ -79,7 +116,7 @@ def _page_add():
         email = st.text_input("Dipendente email")
         data_inizio = st.date_input("Data inizio")
         data_fine = st.date_input("Data fine")
-        motivo = st.text_input("Motivo")
+        motivo = st.text_text_input("Motivo")
 
         submitted = st.form_submit_button("Invia richiesta")
 
@@ -119,7 +156,7 @@ def _page_edit_delete(df):
 
     df = df.copy()
     df["label"] = df.apply(
-        lambda r: f"ID {r['id']} – {r.get('dipendente_email','')} ({r.get('status','')})",
+        lambda r: f"ID {r['id']} – {r.get('dipendente_email', '')} ({r.get('status', '')})",
         axis=1,
     )
 
@@ -129,9 +166,21 @@ def _page_edit_delete(df):
 
     with st.form("edit_req"):
         email = st.text_input("Dipendente email", value=row.get("dipendente_email", ""))
-        data_inizio = st.date_input("Data inizio", value=pd.to_datetime(row["data_inizio"]).date())
-        data_fine = st.date_input("Data fine", value=pd.to_datetime(row["data_fine"]).date())
+
+        data_inizio = st.date_input(
+            "Data inizio",
+            value=pd.to_datetime(row["data_inizio"]).date()
+        )
+
+        data_fine = st.date_input(
+            "Data fine",
+            value=pd.to_datetime(row["data_fine"]).date()
+        )
+
         motivo = st.text_input("Motivo", value=row.get("motivo", "") or "")
+
+        # NEW: campo note
+        note = st.text_area("Note", value=row.get("note", "") or "")
 
         status = st.selectbox(
             "Status",
@@ -151,6 +200,7 @@ def _page_edit_delete(df):
                 "data_inizio": str(data_inizio),
                 "data_fine": str(data_fine),
                 "motivo": motivo,
+                "note": note,
                 "status": status,
                 "giorni_lavorativi_2025": g2025,
                 "giorni_lavorativi_2026": g2026,
